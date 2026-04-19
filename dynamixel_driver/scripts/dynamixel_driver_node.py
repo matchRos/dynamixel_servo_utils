@@ -11,7 +11,7 @@ from dynamixel_sdk import PortHandler, PacketHandler
 class DynamixelDriverNode:
     def __init__(self):
         # Parameters
-        self.device_name = rospy.get_param("~device_name", "/dev/ttyUSB1")
+        self.device_name = rospy.get_param("~device_name", "/dev/ttyUSB0")
         self.baudrate = rospy.get_param("~baudrate", 57600)
         self.protocol_version = rospy.get_param("~protocol_version", 2.0)
         self.dxl_id = rospy.get_param("~dxl_id", 1)
@@ -52,26 +52,34 @@ class DynamixelDriverNode:
         self.packet_handler = PacketHandler(self.protocol_version)
 
         # Publishers
-        self.pub_present_current = rospy.Publisher("/present_current", Float32, queue_size=10)
+        self.pub_present_current = rospy.Publisher(
+            "/present_current", Float32, queue_size=10
+        )
         self.pub_present_rpm = rospy.Publisher("/present_rpm", Float32, queue_size=10)
         self.pub_active_mode = rospy.Publisher("/active_mode", String, queue_size=10)
 
         # Subscribers
-        self.sub_goal_current = rospy.Subscriber("/goal_current", Float32, self.goal_current_cb)
+        self.sub_goal_current = rospy.Subscriber(
+            "/goal_current", Float32, self.goal_current_cb
+        )
         self.sub_goal_rpm = rospy.Subscriber("/goal_rpm", Float32, self.goal_rpm_cb)
-        self.sub_goal_rpm_limited = rospy.Subscriber("/goal_rpm_limited", Float32, self.goal_rpm_limited_cb)
-        self.sub_max_current = rospy.Subscriber("/max_current", Float32, self.max_current_cb)
+        self.sub_goal_rpm_limited = rospy.Subscriber(
+            "/goal_rpm_limited", Float32, self.goal_rpm_limited_cb
+        )
+        self.sub_max_current = rospy.Subscriber(
+            "/max_current", Float32, self.max_current_cb
+        )
 
         self.init_dynamixel()
 
     def dxl_to_signed(self, val, bits):
         if val >= (1 << (bits - 1)):
-            val -= (1 << bits)
+            val -= 1 << bits
         return val
 
     def signed_to_dxl(self, val, bits):
         if val < 0:
-            val += (1 << bits)
+            val += 1 << bits
         return val
 
     def clamp(self, value, min_value, max_value):
@@ -79,10 +87,18 @@ class DynamixelDriverNode:
 
     def check_result(self, dxl_comm_result, dxl_error, action_name):
         if dxl_comm_result != 0:
-            rospy.logerr("%s failed: %s", action_name, self.packet_handler.getTxRxResult(dxl_comm_result))
+            rospy.logerr(
+                "%s failed: %s",
+                action_name,
+                self.packet_handler.getTxRxResult(dxl_comm_result),
+            )
             return False
         if dxl_error != 0:
-            rospy.logerr("%s DXL error: %s", action_name, self.packet_handler.getRxPacketError(dxl_error))
+            rospy.logerr(
+                "%s DXL error: %s",
+                action_name,
+                self.packet_handler.getRxPacketError(dxl_error),
+            )
             return False
         return True
 
@@ -111,7 +127,10 @@ class DynamixelDriverNode:
             rospy.loginfo("Initial operating mode: %d", self.current_mode)
 
             dxl_comm_result, dxl_error = self.packet_handler.write1ByteTxRx(
-                self.port_handler, self.dxl_id, self.addr_torque_enable, self.torque_enable
+                self.port_handler,
+                self.dxl_id,
+                self.addr_torque_enable,
+                self.torque_enable,
             )
             if not self.check_result(dxl_comm_result, dxl_error, "Enable torque"):
                 raise RuntimeError("Failed to enable torque")
@@ -131,21 +150,33 @@ class DynamixelDriverNode:
                 return True
 
             dxl_comm_result, dxl_error = self.packet_handler.write1ByteTxRx(
-                self.port_handler, self.dxl_id, self.addr_torque_enable, self.torque_disable
+                self.port_handler,
+                self.dxl_id,
+                self.addr_torque_enable,
+                self.torque_disable,
             )
-            if not self.check_result(dxl_comm_result, dxl_error, "Disable torque for mode switch"):
+            if not self.check_result(
+                dxl_comm_result, dxl_error, "Disable torque for mode switch"
+            ):
                 return False
 
             dxl_comm_result, dxl_error = self.packet_handler.write1ByteTxRx(
                 self.port_handler, self.dxl_id, self.addr_operating_mode, new_mode
             )
-            if not self.check_result(dxl_comm_result, dxl_error, "Write operating mode"):
+            if not self.check_result(
+                dxl_comm_result, dxl_error, "Write operating mode"
+            ):
                 return False
 
             dxl_comm_result, dxl_error = self.packet_handler.write1ByteTxRx(
-                self.port_handler, self.dxl_id, self.addr_torque_enable, self.torque_enable
+                self.port_handler,
+                self.dxl_id,
+                self.addr_torque_enable,
+                self.torque_enable,
             )
-            if not self.check_result(dxl_comm_result, dxl_error, "Re-enable torque after mode switch"):
+            if not self.check_result(
+                dxl_comm_result, dxl_error, "Re-enable torque after mode switch"
+            ):
                 return False
 
             self.current_mode = new_mode
@@ -183,7 +214,9 @@ class DynamixelDriverNode:
             return
 
         goal_current_ma = msg.data
-        goal_current_ma = self.clamp(goal_current_ma, -self.max_current_ma, self.max_current_ma)
+        goal_current_ma = self.clamp(
+            goal_current_ma, -self.max_current_ma, self.max_current_ma
+        )
         self.write_goal_current_ma(goal_current_ma)
 
     def goal_rpm_cb(self, msg):
@@ -223,15 +256,21 @@ class DynamixelDriverNode:
 
     def read_present_state(self):
         with self.dxl_lock:
-            present_current_raw, dxl_comm_result, dxl_error = self.packet_handler.read2ByteTxRx(
-                self.port_handler, self.dxl_id, self.addr_present_current
+            present_current_raw, dxl_comm_result, dxl_error = (
+                self.packet_handler.read2ByteTxRx(
+                    self.port_handler, self.dxl_id, self.addr_present_current
+                )
             )
         if self.check_result(dxl_comm_result, dxl_error, "Read present current"):
-            self.last_present_current_ma = float(self.dxl_to_signed(present_current_raw, 16))
+            self.last_present_current_ma = float(
+                self.dxl_to_signed(present_current_raw, 16)
+            )
 
         with self.dxl_lock:
-            present_velocity_raw, dxl_comm_result, dxl_error = self.packet_handler.read4ByteTxRx(
-                self.port_handler, self.dxl_id, self.addr_present_velocity
+            present_velocity_raw, dxl_comm_result, dxl_error = (
+                self.packet_handler.read4ByteTxRx(
+                    self.port_handler, self.dxl_id, self.addr_present_velocity
+                )
             )
         if self.check_result(dxl_comm_result, dxl_error, "Read present velocity"):
             present_velocity_signed = self.dxl_to_signed(present_velocity_raw, 32)
@@ -291,7 +330,10 @@ class DynamixelDriverNode:
 
             try:
                 self.packet_handler.write1ByteTxRx(
-                    self.port_handler, self.dxl_id, self.addr_torque_enable, self.torque_disable
+                    self.port_handler,
+                    self.dxl_id,
+                    self.addr_torque_enable,
+                    self.torque_disable,
                 )
             except Exception as e:
                 rospy.logwarn("Could not disable torque: %s", str(e))
